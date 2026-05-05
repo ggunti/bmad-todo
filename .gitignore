@@ -1,0 +1,25 @@
+# Environment files — NEVER commit secrets
+.env
+
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Build outputs
+dist/
+**/dist/
+frontend/dist/
+
+# macOS
+.DS_Store
+**/.DS_Store
+
+# Logs
+*.log
+npm-debug.log*
+
+# Prisma generated client (when using custom output)
+backend/src/generated/
+
+# Docker
+.docker/
