@@ -9,6 +9,7 @@ export interface Todo {
   retryText?: string;
   toggleState?: 'failed';
   retryCompleted?: boolean;
+  deleteState?: 'failed';
 }
 
 export interface TodosResponse {
@@ -29,6 +30,10 @@ export interface ToggleTodoRequest {
 
 export interface ToggleTodoResponse {
   todo: Todo;
+}
+
+export interface DeleteTodoResponse {
+  success: true;
 }
 
 export interface ApiErrorResponse {

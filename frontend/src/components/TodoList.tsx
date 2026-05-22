@@ -5,15 +5,29 @@ interface TodoListProps {
   onRetryCreate: (todo: Todo) => void;
   onToggleTodo: (todo: Todo, completed: boolean) => void;
   onRetryToggle: (todo: Todo) => void;
+  onDeleteTodo: (todo: Todo, nextTodoId: string | null) => void;
+  onRetryDelete: (todo: Todo) => void;
 }
 
 const getCheckboxLabel = (todo: Todo) =>
   todo.completed ? `Mark incomplete: ${todo.text}` : `Mark complete: ${todo.text}`;
 
-export const TodoList = ({ todos, onRetryCreate, onToggleTodo, onRetryToggle }: TodoListProps) => (
+export const TodoList = ({
+  todos,
+  onRetryCreate,
+  onToggleTodo,
+  onRetryToggle,
+  onDeleteTodo,
+  onRetryDelete,
+}: TodoListProps) => (
   <ul className="todo-list">
-    {todos.map((todo) => (
-      <li className={`todo-card ${todo.createState === 'failed' ? 'todo-card--failed' : ''}`} key={todo.id}>
+    {todos.map((todo, index) => (
+      <li
+        className={`todo-card ${
+          todo.createState === 'failed' || todo.deleteState === 'failed' ? 'todo-card--failed' : ''
+        }`}
+        key={todo.id}
+      >
         <div className="todo-row">
           <button
             aria-checked={todo.completed}
@@ -37,6 +51,15 @@ export const TodoList = ({ todos, onRetryCreate, onToggleTodo, onRetryToggle }: 
             {todo.text}
             {todo.completed && <span aria-hidden="true" className="todo-text-diagonal-line" />}
           </span>
+          <button
+            aria-label={`Delete: ${todo.text}`}
+            className="todo-delete-button"
+            data-delete-button-id={todo.id}
+            onClick={() => onDeleteTodo(todo, todos[index + 1]?.id ?? null)}
+            type="button"
+          >
+            ×
+          </button>
         </div>
         {todo.createState === 'failed' && (
           <div className="todo-failure-indication" role="status">
@@ -56,6 +79,22 @@ export const TodoList = ({ todos, onRetryCreate, onToggleTodo, onRetryToggle }: 
             </span>
             <span>This item failed to update.</span>
             <button className="todo-inline-retry" onClick={() => onRetryToggle(todo)} type="button">
+              Retry
+            </button>
+          </div>
+        )}
+        {todo.deleteState === 'failed' && (
+          <div className="todo-failure-indication" role="status">
+            <span aria-hidden="true" className="todo-warning-glyph">
+              ⚠
+            </span>
+            <span>Couldn&apos;t delete — try again.</span>
+            <button
+              aria-label={`Retry delete: ${todo.text}`}
+              className="todo-inline-retry"
+              onClick={() => onRetryDelete(todo)}
+              type="button"
+            >
               Retry
             </button>
           </div>
