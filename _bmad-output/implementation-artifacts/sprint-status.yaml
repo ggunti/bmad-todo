@@ -49,10 +49,10 @@ development_status:
   epic-1-retrospective: optional
 
   # Epic 2: Core Todo Capture & Persistence
-  epic-2: in-progress
+  epic-2: done
   2-1-backend-session-middleware-todo-api: done
   2-2-todo-list-display-with-empty-loading-error-states: done
-  2-3-todo-input-validation-optimistic-add: backlog
+  2-3-todo-input-validation-optimistic-add: done
   epic-2-retrospective: optional
 
   # Epic 3: Todo Completion & Deletion

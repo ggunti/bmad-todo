@@ -23,6 +23,22 @@ const jsonResponse = (body: unknown, init?: ResponseInit) =>
     ...init,
   });
 
+const deferredResponse = () => {
+  let resolve: ((value: Response | PromiseLike<Response>) => void) | undefined;
+  let reject: ((reason?: unknown) => void) | undefined;
+
+  const promise = new Promise<Response>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+
+  return {
+    promise,
+    resolve: (value: Response) => resolve?.(value),
+    reject: (reason?: unknown) => reject?.(reason),
+  };
+};
+
 const createWrapper = () => {
   const queryClient = new QueryClient({
     defaultOptions: {
@@ -40,6 +56,195 @@ const createWrapper = () => {
 describe('Todo list region states', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+  });
+
+  it('renders focused input with required placeholder and aria-label', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse({ todos: [] }));
+
+    render(<App />, { wrapper: createWrapper() });
+
+    const input = await screen.findByRole('textbox', { name: 'New todo' });
+    expect(input).toHaveAttribute('placeholder', 'What needs doing?');
+    expect(input).toHaveFocus();
+  });
+
+  it('shows validation for empty submission and clears message on typing', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse({ todos: [] }));
+
+    render(<App />, { wrapper: createWrapper() });
+
+    const input = await screen.findByRole('textbox', { name: 'New todo' });
+    fireEvent.change(input, { target: { value: '   ' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    expect(await screen.findByText('Add some text first.')).toBeInTheDocument();
+    expect(input).toHaveValue('');
+    expect(input).toHaveFocus();
+
+    fireEvent.change(input, { target: { value: 'n' } });
+    await waitFor(() => expect(screen.queryByText('Add some text first.')).not.toBeInTheDocument());
+  });
+
+  it('shows over-length validation and preserves text for editing', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse({ todos: [] }));
+
+    render(<App />, { wrapper: createWrapper() });
+
+    const input = await screen.findByRole('textbox', { name: 'New todo' });
+    const tooLong = 'x'.repeat(1025);
+
+    fireEvent.change(input, { target: { value: tooLong } });
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }));
+
+    expect(await screen.findByText('Max 1024 characters — please shorten.')).toBeInTheDocument();
+    expect(input).toHaveValue(tooLong);
+    expect(input).toHaveFocus();
+  });
+
+  it('uses the same create flow for Enter and Add button', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation((_input, init) => {
+      const method = init?.method ?? 'GET';
+      if (method === 'GET') {
+        return Promise.resolve(jsonResponse({ todos: [] }));
+      }
+
+      const body = JSON.parse(String(init?.body ?? '{}')) as { text?: string };
+      return Promise.resolve(
+        jsonResponse({
+          todo: makeTodo({
+            id: `todo-${body.text}`,
+            text: body.text ?? '',
+            sortOrder: 1,
+          }),
+        }),
+      );
+    });
+
+    render(<App />, { wrapper: createWrapper() });
+    const input = await screen.findByRole('textbox', { name: 'New todo' });
+
+    fireEvent.change(input, { target: { value: 'first entry' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    await screen.findByText('first entry');
+    expect(input).toHaveFocus();
+
+    fireEvent.change(input, { target: { value: 'second entry' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }));
+    await screen.findByText('second entry');
+    expect(input).toHaveFocus();
+
+    const postCalls = fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST');
+    expect(postCalls).toHaveLength(2);
+  });
+
+  it('optimistically inserts todo before POST resolves', async () => {
+    const createDeferred = deferredResponse();
+    vi.spyOn(globalThis, 'fetch').mockImplementation((_input, init) => {
+      const method = init?.method ?? 'GET';
+      if (method === 'GET') {
+        return Promise.resolve(jsonResponse({ todos: [] }));
+      }
+
+      return createDeferred.promise;
+    });
+
+    render(<App />, { wrapper: createWrapper() });
+    const input = await screen.findByRole('textbox', { name: 'New todo' });
+
+    fireEvent.change(input, { target: { value: 'buy bread' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    const optimisticRow = await screen.findByText('buy bread');
+    expect(optimisticRow).toBeInTheDocument();
+
+    createDeferred.resolve(
+      jsonResponse({
+        todo: makeTodo({
+          id: 'todo-buy-bread',
+          text: 'buy bread',
+          sortOrder: 1,
+        }),
+      }),
+    );
+
+    await waitFor(() => expect(screen.getByText('buy bread')).toBeInTheDocument());
+  });
+
+  it('shows row-level failure and supports inline retry recovery', async () => {
+    let createAttempts = 0;
+    vi.spyOn(globalThis, 'fetch').mockImplementation((_input, init) => {
+      const method = init?.method ?? 'GET';
+      if (method === 'GET') {
+        return Promise.resolve(jsonResponse({ todos: [] }));
+      }
+
+      createAttempts += 1;
+      if (createAttempts === 1) {
+        return Promise.reject(new Error('network down'));
+      }
+
+      return Promise.resolve(
+        jsonResponse({
+          todo: makeTodo({
+            id: 'todo-retried',
+            text: 'retry me',
+            sortOrder: 1,
+          }),
+        }),
+      );
+    });
+
+    render(<App />, { wrapper: createWrapper() });
+    const input = await screen.findByRole('textbox', { name: 'New todo' });
+
+    fireEvent.change(input, { target: { value: 'retry me' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    expect(await screen.findByText('This item failed to save.')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+
+    await waitFor(() => expect(screen.queryByText('This item failed to save.')).not.toBeInTheDocument());
+    expect(screen.getByText('retry me')).toBeInTheDocument();
+  });
+
+  it('isolates failures during rapid-fire optimistic creates', async () => {
+    const firstCreate = deferredResponse();
+    const secondCreate = deferredResponse();
+    let createCall = 0;
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation((_input, init) => {
+      const method = init?.method ?? 'GET';
+      if (method === 'GET') {
+        return Promise.resolve(jsonResponse({ todos: [] }));
+      }
+
+      createCall += 1;
+      return createCall === 1 ? firstCreate.promise : secondCreate.promise;
+    });
+
+    render(<App />, { wrapper: createWrapper() });
+    const input = await screen.findByRole('textbox', { name: 'New todo' });
+
+    fireEvent.change(input, { target: { value: 'first item' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    fireEvent.change(input, { target: { value: 'second item' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    const cards = await screen.findAllByRole('listitem');
+    expect(cards[0]).toHaveTextContent('second item');
+    expect(cards[1]).toHaveTextContent('first item');
+
+    firstCreate.reject(new Error('first failed'));
+    secondCreate.resolve(
+      jsonResponse({
+        todo: makeTodo({ id: 'todo-second', text: 'second item', sortOrder: 1 }),
+      }),
+    );
+
+    expect(await screen.findByText('This item failed to save.')).toBeInTheDocument();
+    expect(screen.getByText('second item')).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: 'Retry' })).toHaveLength(1);
   });
 
   it('shows loading state during initial fetch with polite live region', () => {

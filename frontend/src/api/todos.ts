@@ -1,4 +1,10 @@
-import type { ApiErrorResponse, Todo, TodosResponse } from '../types/todo';
+import type {
+  ApiErrorResponse,
+  CreateTodoRequest,
+  CreateTodoResponse,
+  Todo,
+  TodosResponse,
+} from '../types/todo';
 
 export class TodosApiError extends Error {
   readonly code: string;
@@ -36,6 +42,14 @@ const isTodosResponse = (value: unknown): value is TodosResponse => {
   }
 
   return value.todos.every((todo) => isTodo(todo));
+};
+
+const isCreateTodoResponse = (value: unknown): value is CreateTodoResponse => {
+  if (!isRecord(value) || !('todo' in value)) {
+    return false;
+  }
+
+  return isTodo(value.todo);
 };
 
 const isApiErrorResponse = (value: unknown): value is ApiErrorResponse => {
@@ -78,6 +92,33 @@ export const getTodos = async (): Promise<TodosResponse> => {
 
   if (!isTodosResponse(payload)) {
     throw new Error('Invalid todos payload shape.');
+  }
+
+  return payload;
+};
+
+export const createTodo = async (input: CreateTodoRequest): Promise<CreateTodoResponse> => {
+  const response = await fetch('/api/todos', {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(input),
+  });
+
+  const payload = await readJsonObject(response);
+
+  if (!response.ok) {
+    if (!isApiErrorResponse(payload)) {
+      throw new Error('Invalid API error payload shape.');
+    }
+
+    throw new TodosApiError(payload.error.code, payload.error.message, response.status);
+  }
+
+  if (!isCreateTodoResponse(payload)) {
+    throw new Error('Invalid create todo payload shape.');
   }
 
   return payload;
