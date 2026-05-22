@@ -43,14 +43,14 @@ story_location: "{project-root}/_bmad-output/implementation-artifacts"
 
 development_status:
   # Epic 1: Project Foundation & Deployable Shell
-  epic-1: in-progress
+  epic-1: done
   1-1-project-scaffold-docker-compose-deployment: done
   1-2-page-metadata-design-system-foundation: done
   epic-1-retrospective: optional
 
   # Epic 2: Core Todo Capture & Persistence
-  epic-2: backlog
-  2-1-backend-session-middleware-todo-api: backlog
+  epic-2: in-progress
+  2-1-backend-session-middleware-todo-api: done
   2-2-todo-list-display-with-empty-loading-error-states: backlog
   2-3-todo-input-validation-optimistic-add: backlog
   epic-2-retrospective: optional

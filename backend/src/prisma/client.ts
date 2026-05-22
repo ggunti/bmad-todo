@@ -1,7 +1,8 @@
 import { PrismaClient } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 
-const connectionString = process.env['DATABASE_URL'] ?? '';
+const connectionString =
+  process.env['DATABASE_URL'] ?? 'postgresql://todo:todo@localhost:5432/todo_bmad';
 
 const adapter = new PrismaPg({ connectionString });
 
