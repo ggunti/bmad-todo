@@ -16,6 +16,10 @@ type TodoRecord = {
   updatedAt: Date;
 };
 
+type DeleteManyWhere = {
+  sessionId: { in: string[] } | string;
+};
+
 const { prismaMock, todoStore, resetTodoStore } = vi.hoisted(() => {
   const store: TodoRecord[] = [];
   let sequence = 0;
@@ -24,8 +28,10 @@ const { prismaMock, todoStore, resetTodoStore } = vi.hoisted(() => {
 
   const mock = {
     todo: {
-      deleteMany: vi.fn(async ({ where }: { where: { sessionId: { in: string[] } } }) => {
-        const sessionIds = new Set(where.sessionId.in);
+      deleteMany: vi.fn(async ({ where }: { where: DeleteManyWhere }) => {
+        const sessionIds = new Set(
+          typeof where.sessionId === 'string' ? [where.sessionId] : where.sessionId.in,
+        );
         const originalLength = store.length;
 
         for (let index = store.length - 1; index >= 0; index -= 1) {
@@ -431,5 +437,74 @@ describe('todo routes', () => {
       'first sibling',
       'third sibling',
     ]);
+  });
+
+  it('clears all todos for only the current session and returns success envelope', async () => {
+    await prismaMock.todo.createMany({
+      data: [
+        { sessionId: SESSION_A, text: 'session-a-one', completed: false, sortOrder: 0 },
+        { sessionId: SESSION_A, text: 'session-a-two', completed: true, sortOrder: 1 },
+        { sessionId: SESSION_B, text: 'session-b-one', completed: false, sortOrder: 0 },
+      ],
+    });
+
+    const response = await request(app)
+      .delete('/api/todos')
+      .set('Cookie', cookieFor(SESSION_A));
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({ success: true });
+
+    const sessionAResponse = await request(app)
+      .get('/api/todos')
+      .set('Cookie', cookieFor(SESSION_A));
+    expect(sessionAResponse.body.todos).toEqual([]);
+
+    const sessionBResponse = await request(app)
+      .get('/api/todos')
+      .set('Cookie', cookieFor(SESSION_B));
+    expect(sessionBResponse.body.todos).toHaveLength(1);
+    expect(sessionBResponse.body.todos[0].text).toBe('session-b-one');
+  });
+
+  it('keeps session reusable after clear-all without rotating cookie context', async () => {
+    await request(app)
+      .post('/api/todos')
+      .set('Cookie', cookieFor(SESSION_A))
+      .send({ text: 'before clear' });
+
+    const clearResponse = await request(app)
+      .delete('/api/todos')
+      .set('Cookie', cookieFor(SESSION_A));
+    expect(clearResponse.status).toBe(200);
+    expect(clearResponse.body).toEqual({ success: true });
+
+    const createAfterClearResponse = await request(app)
+      .post('/api/todos')
+      .set('Cookie', cookieFor(SESSION_A))
+      .send({ text: 'after clear' });
+    expect(createAfterClearResponse.status).toBe(201);
+
+    const listAfterClearResponse = await request(app)
+      .get('/api/todos')
+      .set('Cookie', cookieFor(SESSION_A));
+    expect(listAfterClearResponse.body.todos).toHaveLength(1);
+    expect(listAfterClearResponse.body.todos[0].text).toBe('after clear');
+  });
+
+  it('returns consistent error envelope when clear-all fails', async () => {
+    prismaMock.todo.deleteMany.mockRejectedValueOnce(new Error('db unavailable'));
+
+    const response = await request(app)
+      .delete('/api/todos')
+      .set('Cookie', cookieFor(SESSION_A));
+
+    expect(response.status).toBe(500);
+    expect(response.body).toEqual({
+      error: {
+        code: 'INTERNAL_ERROR',
+        message: 'Something went wrong',
+      },
+    });
   });
 });

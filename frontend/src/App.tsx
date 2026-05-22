@@ -1,8 +1,10 @@
 import { EmptyState } from './components/EmptyState';
 import { ErrorState } from './components/ErrorState';
+import { Footer } from './components/Footer';
 import { LoadingState } from './components/LoadingState';
 import { TodoInput } from './components/TodoInput';
 import { TodoList } from './components/TodoList';
+import { useClearAllTodos } from './hooks/useClearAllTodos';
 import { useCreateTodo } from './hooks/useCreateTodo';
 import { useDeleteTodo } from './hooks/useDeleteTodo';
 import { useToggleTodo } from './hooks/useToggleTodo';
@@ -11,6 +13,7 @@ import { useTodos } from './hooks/useTodos';
 function App() {
   const { data, isError, isFetching, isPending, refetch } = useTodos();
   const { createTodo, retryCreate } = useCreateTodo();
+  const { clearAllTodos, hasClearAllError, retryClearAll } = useClearAllTodos();
   const { deleteTodo, retryDelete } = useDeleteTodo();
   const { toggleTodo, retryToggle } = useToggleTodo();
 
@@ -45,7 +48,18 @@ function App() {
               todos={todos}
             />
           )}
+          {!showLoading && !showError && hasClearAllError && (
+            <div className="todo-state todo-state--clear-all-error" role="status">
+              <span>Couldn&apos;t clear — try again.</span>
+              <button className="retry-button" onClick={retryClearAll} type="button">
+                Retry
+              </button>
+            </div>
+          )}
         </section>
+        {!showLoading && !showError && (
+          <Footer onConfirmClearAll={() => clearAllTodos()} todoCount={todos.length} />
+        )}
       </div>
     </main>
   );

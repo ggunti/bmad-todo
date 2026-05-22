@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import App from "../App";
@@ -679,6 +679,192 @@ describe("Todo list region states", () => {
     );
     expect(screen.queryByText("Delete fail row")).not.toBeInTheDocument();
     expect(screen.getByText("Neighbor row")).toBeInTheDocument();
+  });
+
+  it("always shows cookie disclosure link and only shows clear-all with todos", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      jsonResponse({ todos: [] }),
+    );
+
+    const { unmount } = render(<App />, { wrapper: createWrapper() });
+    const cookieLink = await screen.findByRole("link", {
+      name: "About cookies",
+    });
+    expect(cookieLink).toHaveAttribute("href", "/cookies.html");
+    expect(
+      screen.queryByRole("button", { name: "Clear all" }),
+    ).not.toBeInTheDocument();
+    unmount();
+
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      jsonResponse({
+        todos: [makeTodo({ id: "todo-clear-1", text: "Clear target", sortOrder: 1 })],
+      }),
+    );
+
+    render(<App />, { wrapper: createWrapper() });
+    expect(await screen.findByRole("button", { name: "Clear all" })).toBeInTheDocument();
+  });
+
+  it("opens clear-all dialog with a11y semantics and restores focus after cancel", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      jsonResponse({
+        todos: [makeTodo({ id: "todo-clear-1", text: "Clear target", sortOrder: 1 })],
+      }),
+    );
+
+    render(<App />, { wrapper: createWrapper() });
+    const triggerButton = await screen.findByRole("button", { name: "Clear all" });
+    fireEvent.click(triggerButton);
+
+    const dialog = await screen.findByRole("dialog", { name: "Clear all todos?" });
+    expect(dialog).toHaveAttribute("aria-describedby", "clear-all-description");
+    expect(
+      screen.getByText("This will delete all 1 todos. This cannot be undone."),
+    ).toBeInTheDocument();
+
+    const cancelButton = screen.getByRole("button", { name: "Cancel" });
+    expect(cancelButton).toHaveFocus();
+
+    fireEvent.click(cancelButton);
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    await waitFor(() => expect(triggerButton).toHaveFocus());
+    expect(screen.getByText("Clear target")).toBeInTheDocument();
+  });
+
+  it("supports Escape and backdrop close for clear-all dialog without mutating", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      jsonResponse({
+        todos: [makeTodo({ id: "todo-clear-2", text: "Escape target", sortOrder: 1 })],
+      }),
+    );
+
+    render(<App />, { wrapper: createWrapper() });
+
+    fireEvent.click(await screen.findByRole("button", { name: "Clear all" }));
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+    fireEvent.keyDown(document, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(screen.getByText("Escape target")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Clear all" }));
+    const overlay = await waitFor(() => document.querySelector(".clear-all-overlay"));
+    expect(overlay).toBeTruthy();
+    if (overlay) {
+      fireEvent.mouseDown(overlay);
+      fireEvent.click(overlay);
+    }
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(screen.getByText("Escape target")).toBeInTheDocument();
+
+    const deleteCalls = fetchMock.mock.calls.filter(
+      ([, init]) => init?.method === "DELETE",
+    );
+    expect(deleteCalls).toHaveLength(0);
+  });
+
+  it("optimistically clears all todos and sends DELETE in background on confirm", async () => {
+    const clearDeferred = deferredResponse();
+
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation((_input, init) => {
+      const method = init?.method ?? "GET";
+      if (method === "GET") {
+        return Promise.resolve(
+          jsonResponse({
+            todos: [
+              makeTodo({ id: "todo-clear-1", text: "First clear row", sortOrder: 1 }),
+              makeTodo({ id: "todo-clear-2", text: "Second clear row", sortOrder: 2 }),
+            ],
+          }),
+        );
+      }
+
+      if (method === "DELETE") {
+        return clearDeferred.promise;
+      }
+
+      return Promise.resolve(
+        jsonResponse(
+          { error: { code: "UNEXPECTED", message: "Unexpected call" } },
+          { status: 500 },
+        ),
+      );
+    });
+
+    render(<App />, { wrapper: createWrapper() });
+
+    fireEvent.click(await screen.findByRole("button", { name: "Clear all" }));
+    const dialog = await screen.findByRole("dialog", { name: "Clear all todos?" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Clear all" }));
+
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
+    );
+    expect(
+      await screen.findByText("No todos yet — add one above."),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("First clear row")).not.toBeInTheDocument();
+
+    const deleteCalls = fetchMock.mock.calls.filter(
+      ([, init]) => init?.method === "DELETE",
+    );
+    expect(deleteCalls).toHaveLength(1);
+
+    clearDeferred.resolve(jsonResponse({ success: true }));
+    await waitFor(() =>
+      expect(screen.getByText("No todos yet — add one above.")).toBeInTheDocument(),
+    );
+  });
+
+  it("restores todos and shows retry affordance when clear-all fails", async () => {
+    let clearAttempts = 0;
+    vi.spyOn(globalThis, "fetch").mockImplementation((_input, init) => {
+      const method = init?.method ?? "GET";
+      if (method === "GET") {
+        return Promise.resolve(
+          jsonResponse({
+            todos: [makeTodo({ id: "todo-clear-fail", text: "Rollback row", sortOrder: 1 })],
+          }),
+        );
+      }
+
+      if (method === "DELETE") {
+        clearAttempts += 1;
+        if (clearAttempts === 1) {
+          return Promise.reject(new Error("clear failed"));
+        }
+
+        return Promise.resolve(jsonResponse({ success: true }));
+      }
+
+      return Promise.resolve(
+        jsonResponse(
+          { error: { code: "UNEXPECTED", message: "Unexpected call" } },
+          { status: 500 },
+        ),
+      );
+    });
+
+    render(<App />, { wrapper: createWrapper() });
+
+    fireEvent.click(await screen.findByRole("button", { name: "Clear all" }));
+    const dialog = await screen.findByRole("dialog", { name: "Clear all todos?" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Clear all" }));
+
+    expect(
+      await screen.findByText("Couldn't clear — try again."),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Rollback row")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+
+    await waitFor(() =>
+      expect(
+        screen.queryByText("Couldn't clear — try again."),
+      ).not.toBeInTheDocument(),
+    );
+    await waitFor(() =>
+      expect(screen.getByText("No todos yet — add one above.")).toBeInTheDocument(),
+    );
   });
 
   it("shows loading state during initial fetch with polite live region", () => {

@@ -36,6 +36,10 @@ export interface DeleteTodoResponse {
   success: true;
 }
 
+export interface ClearAllTodosResponse {
+  success: true;
+}
+
 export interface ApiErrorResponse {
   error: {
     code: string;

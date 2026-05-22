@@ -129,3 +129,17 @@ todosRouter.delete('/:id', async (req, res, next) => {
     next(error);
   }
 });
+
+todosRouter.delete('/', async (req, res, next) => {
+  try {
+    await prisma.todo.deleteMany({
+      where: {
+        sessionId: req.sessionId,
+      },
+    });
+
+    res.json({ success: true });
+  } catch (error) {
+    next(error);
+  }
+});
