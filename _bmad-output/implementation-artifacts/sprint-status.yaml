@@ -56,8 +56,8 @@ development_status:
   epic-2-retrospective: optional
 
   # Epic 3: Todo Completion & Deletion
-  epic-3: backlog
-  3-1-toggle-todo-completion: backlog
+  epic-3: in-progress
+  3-1-toggle-todo-completion: done
   3-2-delete-single-todo: backlog
   3-3-clear-all-todos-with-confirmation-footer: backlog
   epic-3-retrospective: optional

@@ -22,3 +22,9 @@ export const createTodoSchema = z.object({
 });
 
 export type CreateTodoInput = z.infer<typeof createTodoSchema>;
+
+export const toggleTodoSchema = z.object({
+  completed: z.boolean(),
+});
+
+export type ToggleTodoInput = z.infer<typeof toggleTodoSchema>;

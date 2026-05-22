@@ -4,11 +4,13 @@ import { LoadingState } from './components/LoadingState';
 import { TodoInput } from './components/TodoInput';
 import { TodoList } from './components/TodoList';
 import { useCreateTodo } from './hooks/useCreateTodo';
+import { useToggleTodo } from './hooks/useToggleTodo';
 import { useTodos } from './hooks/useTodos';
 
 function App() {
   const { data, isError, isFetching, isPending, refetch } = useTodos();
   const { createTodo, retryCreate } = useCreateTodo();
+  const { toggleTodo, retryToggle } = useToggleTodo();
 
   const showLoading = isPending || isFetching;
   const showError = isError && !showLoading;
@@ -25,7 +27,12 @@ function App() {
           {showError && <ErrorState onRetry={() => void refetch()} />}
           {showEmpty && <EmptyState />}
           {!showLoading && !showError && todos.length > 0 && (
-            <TodoList onRetryCreate={retryCreate} todos={todos} />
+            <TodoList
+              onRetryCreate={retryCreate}
+              onRetryToggle={retryToggle}
+              onToggleTodo={(todo, completed) => toggleTodo({ id: todo.id, completed })}
+              todos={todos}
+            />
           )}
         </section>
       </div>

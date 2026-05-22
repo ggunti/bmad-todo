@@ -3,6 +3,8 @@ import type {
   CreateTodoRequest,
   CreateTodoResponse,
   Todo,
+  ToggleTodoRequest,
+  ToggleTodoResponse,
   TodosResponse,
 } from '../types/todo';
 
@@ -45,6 +47,14 @@ const isTodosResponse = (value: unknown): value is TodosResponse => {
 };
 
 const isCreateTodoResponse = (value: unknown): value is CreateTodoResponse => {
+  if (!isRecord(value) || !('todo' in value)) {
+    return false;
+  }
+
+  return isTodo(value.todo);
+};
+
+const isToggleTodoResponse = (value: unknown): value is ToggleTodoResponse => {
   if (!isRecord(value) || !('todo' in value)) {
     return false;
   }
@@ -119,6 +129,36 @@ export const createTodo = async (input: CreateTodoRequest): Promise<CreateTodoRe
 
   if (!isCreateTodoResponse(payload)) {
     throw new Error('Invalid create todo payload shape.');
+  }
+
+  return payload;
+};
+
+export const toggleTodoCompletion = async (
+  id: string,
+  input: ToggleTodoRequest,
+): Promise<ToggleTodoResponse> => {
+  const response = await fetch(`/api/todos/${id}`, {
+    method: 'PATCH',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(input),
+  });
+
+  const payload = await readJsonObject(response);
+
+  if (!response.ok) {
+    if (!isApiErrorResponse(payload)) {
+      throw new Error('Invalid API error payload shape.');
+    }
+
+    throw new TodosApiError(payload.error.code, payload.error.message, response.status);
+  }
+
+  if (!isToggleTodoResponse(payload)) {
+    throw new Error('Invalid toggle todo payload shape.');
   }
 
   return payload;

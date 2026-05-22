@@ -7,6 +7,8 @@ export interface Todo {
   updatedAt: string;
   createState?: 'pending' | 'failed';
   retryText?: string;
+  toggleState?: 'failed';
+  retryCompleted?: boolean;
 }
 
 export interface TodosResponse {
@@ -18,6 +20,14 @@ export interface CreateTodoRequest {
 }
 
 export interface CreateTodoResponse {
+  todo: Todo;
+}
+
+export interface ToggleTodoRequest {
+  completed: boolean;
+}
+
+export interface ToggleTodoResponse {
   todo: Todo;
 }
 

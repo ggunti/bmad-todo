@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { prisma } from '../prisma/client.js';
-import { createTodoSchema } from '../validation/todo.js';
+import { createTodoSchema, toggleTodoSchema } from '../validation/todo.js';
 
 export const todosRouter = Router();
 
@@ -52,6 +52,50 @@ todosRouter.post('/', async (req, res, next) => {
     });
 
     res.status(201).json({ todo });
+  } catch (error) {
+    next(error);
+  }
+});
+
+todosRouter.patch('/:id', async (req, res, next) => {
+  try {
+    const parsedBody = toggleTodoSchema.safeParse(req.body);
+
+    if (!parsedBody.success) {
+      const validationMessage = parsedBody.error.issues[0]?.message ?? 'Invalid request';
+
+      res.status(400).json({
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: validationMessage,
+        },
+      });
+      return;
+    }
+
+    const todo = await prisma.todo.findFirst({
+      where: {
+        id: req.params.id,
+        sessionId: req.sessionId,
+      },
+    });
+
+    if (!todo) {
+      res.status(404).json({
+        error: {
+          code: 'NOT_FOUND',
+          message: 'Todo not found',
+        },
+      });
+      return;
+    }
+
+    const updatedTodo = await prisma.todo.update({
+      where: { id: todo.id },
+      data: { completed: parsedBody.data.completed },
+    });
+
+    res.json({ todo: updatedTodo });
   } catch (error) {
     next(error);
   }
