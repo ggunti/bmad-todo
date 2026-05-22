@@ -63,6 +63,21 @@ const { prismaMock, todoStore, resetTodoStore } = vi.hoisted(() => {
           .sort((a, b) => a.sortOrder - b.sortOrder)
           .map(copyTodo);
       }),
+      findFirst: vi.fn(
+        async ({
+          where,
+        }: {
+          where: {
+            id: string;
+            sessionId: string;
+          };
+        }) => {
+          const matchedTodo = store.find(
+            (todo) => todo.id === where.id && todo.sessionId === where.sessionId,
+          );
+          return matchedTodo ? copyTodo(matchedTodo) : null;
+        },
+      ),
       aggregate: vi.fn(async ({ where }: { where: { sessionId: string } }) => {
         const matchingTodos = store.filter((todo) => todo.sessionId === where.sessionId);
         const sortOrderValues = matchingTodos.map((todo) => todo.sortOrder);
@@ -91,6 +106,28 @@ const { prismaMock, todoStore, resetTodoStore } = vi.hoisted(() => {
           store.push(createdTodo);
 
           return copyTodo(createdTodo);
+        },
+      ),
+      update: vi.fn(
+        async ({
+          where,
+          data,
+        }: {
+          where: {
+            id: string;
+          };
+          data: {
+            completed: boolean;
+          };
+        }) => {
+          const matchedTodo = store.find((todo) => todo.id === where.id);
+          if (!matchedTodo) {
+            throw new Error('Todo not found');
+          }
+
+          matchedTodo.completed = data.completed;
+          matchedTodo.updatedAt = new Date();
+          return copyTodo(matchedTodo);
         },
       ),
     },
@@ -217,5 +254,84 @@ describe('todo routes', () => {
     expect(sessionBResponse.body.todos).toHaveLength(1);
     expect(sessionAResponse.body.todos[0].text).toBe('session-a-item');
     expect(sessionBResponse.body.todos[0].text).toBe('session-b-item');
+  });
+
+  it('toggles todo completion and returns updated todo envelope', async () => {
+    await prismaMock.todo.createMany({
+      data: [
+        { sessionId: SESSION_A, text: 'todo to toggle', completed: false, sortOrder: 2 },
+        { sessionId: SESSION_A, text: 'neighbor todo', completed: false, sortOrder: 8 },
+      ],
+    });
+
+    const initialResponse = await request(app)
+      .get('/api/todos')
+      .set('Cookie', cookieFor(SESSION_A));
+    const targetTodo = initialResponse.body.todos.find(
+      (todo: { text: string }) => todo.text === 'todo to toggle',
+    );
+
+    const response = await request(app)
+      .patch(`/api/todos/${targetTodo.id}`)
+      .set('Cookie', cookieFor(SESSION_A))
+      .send({ completed: true });
+
+    expect(response.status).toBe(200);
+    expect(response.body.todo).toMatchObject({
+      id: targetTodo.id,
+      completed: true,
+      sortOrder: 2,
+    });
+
+    const afterToggleResponse = await request(app)
+      .get('/api/todos')
+      .set('Cookie', cookieFor(SESSION_A));
+    expect(afterToggleResponse.body.todos.map((todo: { id: string }) => todo.id)).toEqual(
+      initialResponse.body.todos.map((todo: { id: string }) => todo.id),
+    );
+  });
+
+  it('returns NOT_FOUND when patching a todo from another session', async () => {
+    await prismaMock.todo.createMany({
+      data: [{ sessionId: SESSION_B, text: 'foreign todo', completed: false, sortOrder: 0 }],
+    });
+
+    const sessionBResponse = await request(app)
+      .get('/api/todos')
+      .set('Cookie', cookieFor(SESSION_B));
+    const foreignTodoId = sessionBResponse.body.todos[0].id;
+
+    const response = await request(app)
+      .patch(`/api/todos/${foreignTodoId}`)
+      .set('Cookie', cookieFor(SESSION_A))
+      .send({ completed: true });
+
+    expect(response.status).toBe(404);
+    expect(response.body).toEqual({
+      error: {
+        code: 'NOT_FOUND',
+        message: 'Todo not found',
+      },
+    });
+  });
+
+  it('returns validation error when completed is not a boolean', async () => {
+    await prismaMock.todo.createMany({
+      data: [{ sessionId: SESSION_A, text: 'todo to toggle', completed: false, sortOrder: 0 }],
+    });
+
+    const sessionAResponse = await request(app)
+      .get('/api/todos')
+      .set('Cookie', cookieFor(SESSION_A));
+    const todoId = sessionAResponse.body.todos[0].id;
+
+    const response = await request(app)
+      .patch(`/api/todos/${todoId}`)
+      .set('Cookie', cookieFor(SESSION_A))
+      .send({ completed: 'yes' });
+
+    expect(response.status).toBe(400);
+    expect(response.body.error.code).toBe('VALIDATION_ERROR');
+    expect(typeof response.body.error.message).toBe('string');
   });
 });

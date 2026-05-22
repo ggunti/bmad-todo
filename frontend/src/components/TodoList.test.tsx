@@ -247,6 +247,156 @@ describe('Todo list region states', () => {
     expect(screen.getAllByRole('button', { name: 'Retry' })).toHaveLength(1);
   });
 
+  it('optimistically toggles completion on click and preserves row order', async () => {
+    const toggleDeferred = deferredResponse();
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation((input, init) => {
+      const method = init?.method ?? 'GET';
+      if (method === 'GET') {
+        return Promise.resolve(
+          jsonResponse({
+            todos: [
+              makeTodo({ id: 'todo-1', text: 'First in list', sortOrder: 1, completed: false }),
+              makeTodo({ id: 'todo-2', text: 'Second in list', sortOrder: 2, completed: false }),
+            ],
+          }),
+        );
+      }
+
+      if (method === 'PATCH' && String(input).endsWith('/api/todos/todo-1')) {
+        return toggleDeferred.promise;
+      }
+
+      return Promise.resolve(jsonResponse({ error: { code: 'UNEXPECTED', message: 'Unexpected call' } }, { status: 500 }));
+    });
+
+    render(<App />, { wrapper: createWrapper() });
+    const firstCheckbox = await screen.findByRole('checkbox', { name: 'Mark complete: First in list' });
+    fireEvent.click(firstCheckbox);
+
+    const toggledCheckbox = await screen.findByRole('checkbox', {
+      name: 'Mark incomplete: First in list',
+    });
+    expect(toggledCheckbox).toHaveAttribute('aria-checked', 'true');
+
+    const cards = screen.getAllByRole('listitem');
+    expect(cards[0]).toHaveTextContent('First in list');
+    expect(cards[1]).toHaveTextContent('Second in list');
+
+    toggleDeferred.resolve(
+      jsonResponse({
+        todo: makeTodo({ id: 'todo-1', text: 'First in list', sortOrder: 1, completed: true }),
+      }),
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole('checkbox', { name: 'Mark incomplete: First in list' })).toBeInTheDocument();
+    });
+
+    const patchCalls = fetchMock.mock.calls.filter(([, init]) => init?.method === 'PATCH');
+    expect(patchCalls).toHaveLength(1);
+  });
+
+  it('supports keyboard Space toggle and exposes checkbox aria state', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation((_input, init) => {
+      const method = init?.method ?? 'GET';
+      if (method === 'GET') {
+        return Promise.resolve(
+          jsonResponse({
+            todos: [makeTodo({ id: 'todo-a11y', text: 'Keyboard todo', completed: false })],
+          }),
+        );
+      }
+
+      return Promise.resolve(
+        jsonResponse({
+          todo: makeTodo({ id: 'todo-a11y', text: 'Keyboard todo', completed: true }),
+        }),
+      );
+    });
+
+    render(<App />, { wrapper: createWrapper() });
+
+    const checkbox = await screen.findByRole('checkbox', { name: 'Mark complete: Keyboard todo' });
+    checkbox.focus();
+    fireEvent.keyDown(checkbox, { key: ' ' });
+    fireEvent.keyUp(checkbox, { key: ' ' });
+
+    await waitFor(() => {
+      expect(screen.getByRole('checkbox', { name: 'Mark incomplete: Keyboard todo' })).toHaveAttribute(
+        'aria-checked',
+        'true',
+      );
+    });
+  });
+
+  it('keeps toggle failures row-local with inline retry', async () => {
+    const patchAttempts = new Map<string, number>();
+    vi.spyOn(globalThis, 'fetch').mockImplementation((input, init) => {
+      const method = init?.method ?? 'GET';
+      if (method === 'GET') {
+        return Promise.resolve(
+          jsonResponse({
+            todos: [
+              makeTodo({ id: 'todo-1', text: 'First toggled todo', completed: false }),
+              makeTodo({ id: 'todo-2', text: 'Second toggled todo', completed: false }),
+            ],
+          }),
+        );
+      }
+
+      if (method === 'PATCH') {
+        const requestUrl = String(input);
+        const todoId = requestUrl.split('/').pop() ?? '';
+        const attempts = (patchAttempts.get(todoId) ?? 0) + 1;
+        patchAttempts.set(todoId, attempts);
+
+        if (todoId === 'todo-1' && attempts === 1) {
+          return Promise.reject(new Error('toggle failed'));
+        }
+
+        return Promise.resolve(
+          jsonResponse({
+            todo: makeTodo({ id: todoId, text: todoId === 'todo-1' ? 'First toggled todo' : 'Second toggled todo', completed: true }),
+          }),
+        );
+      }
+
+      return Promise.resolve(jsonResponse({ error: { code: 'UNEXPECTED', message: 'Unexpected call' } }, { status: 500 }));
+    });
+
+    render(<App />, { wrapper: createWrapper() });
+
+    fireEvent.click(await screen.findByRole('checkbox', { name: 'Mark complete: First toggled todo' }));
+    expect(await screen.findByText('This item failed to update.')).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: 'Mark incomplete: First toggled todo' })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
+
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Mark complete: Second toggled todo' }));
+    await waitFor(() =>
+      expect(screen.getByRole('checkbox', { name: 'Mark incomplete: Second toggled todo' })).toHaveAttribute(
+        'aria-checked',
+        'true',
+      ),
+    );
+
+    const failureCard = screen
+      .getAllByRole('listitem')
+      .find((item) => item.textContent?.includes('First toggled todo'));
+    expect(failureCard).toHaveTextContent('This item failed to update.');
+
+    const retryButton = failureCard?.querySelector('button.todo-inline-retry');
+    expect(retryButton).toBeTruthy();
+    if (retryButton) {
+      fireEvent.click(retryButton);
+    }
+
+    await waitFor(() =>
+      expect(screen.queryByText('This item failed to update.')).not.toBeInTheDocument(),
+    );
+  });
+
   it('shows loading state during initial fetch with polite live region', () => {
     vi.spyOn(globalThis, 'fetch').mockReturnValue(new Promise(() => {}) as Promise<Response>);
 
