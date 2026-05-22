@@ -52,6 +52,7 @@ export const TodoInput = ({ onSubmit }: TodoInputProps) => {
         <input
           aria-label="New todo"
           className="todo-input"
+          data-todo-input="true"
           onChange={(event) => onInputChange(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === 'Enter') {

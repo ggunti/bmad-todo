@@ -130,6 +130,23 @@ const { prismaMock, todoStore, resetTodoStore } = vi.hoisted(() => {
           return copyTodo(matchedTodo);
         },
       ),
+      delete: vi.fn(
+        async ({
+          where,
+        }: {
+          where: {
+            id: string;
+          };
+        }) => {
+          const matchedTodoIndex = store.findIndex((todo) => todo.id === where.id);
+          if (matchedTodoIndex === -1) {
+            throw new Error('Todo not found');
+          }
+
+          const [deletedTodo] = store.splice(matchedTodoIndex, 1);
+          return copyTodo(deletedTodo);
+        },
+      ),
     },
     $disconnect: vi.fn(async () => undefined),
   };
@@ -333,5 +350,86 @@ describe('todo routes', () => {
     expect(response.status).toBe(400);
     expect(response.body.error.code).toBe('VALIDATION_ERROR');
     expect(typeof response.body.error.message).toBe('string');
+  });
+
+  it('deletes a todo and returns success envelope', async () => {
+    await prismaMock.todo.createMany({
+      data: [
+        { sessionId: SESSION_A, text: 'todo to delete', completed: false, sortOrder: 0 },
+        { sessionId: SESSION_A, text: 'todo to keep', completed: false, sortOrder: 1 },
+      ],
+    });
+
+    const initialResponse = await request(app)
+      .get('/api/todos')
+      .set('Cookie', cookieFor(SESSION_A));
+    const todoToDelete = initialResponse.body.todos.find(
+      (todo: { text: string }) => todo.text === 'todo to delete',
+    );
+
+    const response = await request(app)
+      .delete(`/api/todos/${todoToDelete.id}`)
+      .set('Cookie', cookieFor(SESSION_A));
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({ success: true });
+
+    const afterDeleteResponse = await request(app)
+      .get('/api/todos')
+      .set('Cookie', cookieFor(SESSION_A));
+    expect(afterDeleteResponse.body.todos).toHaveLength(1);
+    expect(afterDeleteResponse.body.todos[0].text).toBe('todo to keep');
+  });
+
+  it('returns NOT_FOUND when deleting a todo from another session', async () => {
+    await prismaMock.todo.createMany({
+      data: [{ sessionId: SESSION_B, text: 'foreign todo', completed: false, sortOrder: 0 }],
+    });
+
+    const sessionBResponse = await request(app)
+      .get('/api/todos')
+      .set('Cookie', cookieFor(SESSION_B));
+    const foreignTodoId = sessionBResponse.body.todos[0].id;
+
+    const response = await request(app)
+      .delete(`/api/todos/${foreignTodoId}`)
+      .set('Cookie', cookieFor(SESSION_A));
+
+    expect(response.status).toBe(404);
+    expect(response.body).toEqual({
+      error: {
+        code: 'NOT_FOUND',
+        message: 'Todo not found',
+      },
+    });
+  });
+
+  it('keeps sibling todos intact after deleting one item', async () => {
+    await prismaMock.todo.createMany({
+      data: [
+        { sessionId: SESSION_A, text: 'first sibling', completed: false, sortOrder: 0 },
+        { sessionId: SESSION_A, text: 'target sibling', completed: false, sortOrder: 1 },
+        { sessionId: SESSION_A, text: 'third sibling', completed: false, sortOrder: 2 },
+      ],
+    });
+
+    const initialResponse = await request(app)
+      .get('/api/todos')
+      .set('Cookie', cookieFor(SESSION_A));
+    const targetTodo = initialResponse.body.todos.find(
+      (todo: { text: string }) => todo.text === 'target sibling',
+    );
+
+    await request(app)
+      .delete(`/api/todos/${targetTodo.id}`)
+      .set('Cookie', cookieFor(SESSION_A));
+
+    const afterDeleteResponse = await request(app)
+      .get('/api/todos')
+      .set('Cookie', cookieFor(SESSION_A));
+    expect(afterDeleteResponse.body.todos.map((todo: { text: string }) => todo.text)).toEqual([
+      'first sibling',
+      'third sibling',
+    ]);
   });
 });

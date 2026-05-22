@@ -100,3 +100,32 @@ todosRouter.patch('/:id', async (req, res, next) => {
     next(error);
   }
 });
+
+todosRouter.delete('/:id', async (req, res, next) => {
+  try {
+    const todo = await prisma.todo.findFirst({
+      where: {
+        id: req.params.id,
+        sessionId: req.sessionId,
+      },
+    });
+
+    if (!todo) {
+      res.status(404).json({
+        error: {
+          code: 'NOT_FOUND',
+          message: 'Todo not found',
+        },
+      });
+      return;
+    }
+
+    await prisma.todo.delete({
+      where: { id: todo.id },
+    });
+
+    res.json({ success: true });
+  } catch (error) {
+    next(error);
+  }
+});

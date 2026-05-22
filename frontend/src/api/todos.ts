@@ -2,6 +2,7 @@ import type {
   ApiErrorResponse,
   CreateTodoRequest,
   CreateTodoResponse,
+  DeleteTodoResponse,
   Todo,
   ToggleTodoRequest,
   ToggleTodoResponse,
@@ -61,6 +62,9 @@ const isToggleTodoResponse = (value: unknown): value is ToggleTodoResponse => {
 
   return isTodo(value.todo);
 };
+
+const isDeleteTodoResponse = (value: unknown): value is DeleteTodoResponse =>
+  isRecord(value) && value.success === true;
 
 const isApiErrorResponse = (value: unknown): value is ApiErrorResponse => {
   if (!isRecord(value) || !isRecord(value.error)) {
@@ -159,6 +163,31 @@ export const toggleTodoCompletion = async (
 
   if (!isToggleTodoResponse(payload)) {
     throw new Error('Invalid toggle todo payload shape.');
+  }
+
+  return payload;
+};
+
+export const deleteTodo = async (id: string): Promise<DeleteTodoResponse> => {
+  const response = await fetch(`/api/todos/${id}`, {
+    method: 'DELETE',
+    headers: {
+      Accept: 'application/json',
+    },
+  });
+
+  const payload = await readJsonObject(response);
+
+  if (!response.ok) {
+    if (!isApiErrorResponse(payload)) {
+      throw new Error('Invalid API error payload shape.');
+    }
+
+    throw new TodosApiError(payload.error.code, payload.error.message, response.status);
+  }
+
+  if (!isDeleteTodoResponse(payload)) {
+    throw new Error('Invalid delete todo payload shape.');
   }
 
   return payload;
