@@ -5,10 +5,20 @@ export interface Todo {
   sortOrder: number;
   createdAt: string;
   updatedAt: string;
+  createState?: 'pending' | 'failed';
+  retryText?: string;
 }
 
 export interface TodosResponse {
   todos: Todo[];
+}
+
+export interface CreateTodoRequest {
+  text: string;
+}
+
+export interface CreateTodoResponse {
+  todo: Todo;
 }
 
 export interface ApiErrorResponse {
