@@ -1,5 +1,6 @@
 import type {
   ApiErrorResponse,
+  ClearAllTodosResponse,
   CreateTodoRequest,
   CreateTodoResponse,
   DeleteTodoResponse,
@@ -64,6 +65,9 @@ const isToggleTodoResponse = (value: unknown): value is ToggleTodoResponse => {
 };
 
 const isDeleteTodoResponse = (value: unknown): value is DeleteTodoResponse =>
+  isRecord(value) && value.success === true;
+
+const isClearAllTodosResponse = (value: unknown): value is ClearAllTodosResponse =>
   isRecord(value) && value.success === true;
 
 const isApiErrorResponse = (value: unknown): value is ApiErrorResponse => {
@@ -188,6 +192,31 @@ export const deleteTodo = async (id: string): Promise<DeleteTodoResponse> => {
 
   if (!isDeleteTodoResponse(payload)) {
     throw new Error('Invalid delete todo payload shape.');
+  }
+
+  return payload;
+};
+
+export const clearAllTodos = async (): Promise<ClearAllTodosResponse> => {
+  const response = await fetch('/api/todos', {
+    method: 'DELETE',
+    headers: {
+      Accept: 'application/json',
+    },
+  });
+
+  const payload = await readJsonObject(response);
+
+  if (!response.ok) {
+    if (!isApiErrorResponse(payload)) {
+      throw new Error('Invalid API error payload shape.');
+    }
+
+    throw new TodosApiError(payload.error.code, payload.error.message, response.status);
+  }
+
+  if (!isClearAllTodosResponse(payload)) {
+    throw new Error('Invalid clear all todos payload shape.');
   }
 
   return payload;
